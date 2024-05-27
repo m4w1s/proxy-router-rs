@@ -33,6 +33,13 @@ async fn main() -> anyhow::Result<()> {
     println!("proxy router started on port 5000!");
 
     join_handle.await?;
+
+    // To stop the server:
+    //
+    // join_handle.abort();
+    // _ = join_handle.await;
+    //
+    // At this point the server is closed and the port is free to use
 }
 ```
 
