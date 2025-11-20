@@ -24,7 +24,7 @@ use proxy_router::proxy::Proxy;
 
 async fn main() -> anyhow::Result<()> {
     let router_options = RouterOptions::builder()
-        .proxy(Proxy::from_url("http://username:password@127.0.0.1:1234").unwrap())
+        .proxy(Proxy::parse("http://username:password@127.0.0.1:1234").unwrap())
         .listen_port(5000)
         .build()
         .unwrap();

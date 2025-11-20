@@ -1,7 +1,7 @@
-use async_http_proxy::{http_connect_tokio, http_connect_tokio_with_basic_auth, HttpError};
+use async_http_proxy::{HttpError, http_connect_tokio, http_connect_tokio_with_basic_auth};
 use derive_builder::Builder;
-use fast_socks5::client::{Config as Socks5Config, Socks5Stream};
 use fast_socks5::SocksError;
+use fast_socks5::client::{Config as Socks5Config, Socks5Stream};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::net::TcpStream;
@@ -37,43 +37,16 @@ impl Proxy {
         ProxyBuilder::default()
     }
 
-    pub fn from_url(url: &str) -> Result<Self, ProxyError> {
-        let parsed_url = Url::parse(url)?;
-        let protocol = match parsed_url.scheme() {
-            "http" | "https" => ProxyProtocol::Http,
-            "socks5" => ProxyProtocol::Socks5,
-            protocol => return Err(ProxyError::InvalidProtocol(protocol.to_string())),
-        };
-        let host = match parsed_url.host_str() {
-            Some(host) => host.to_string(),
-            None => return Err(ProxyError::InvalidHost),
-        };
-        let port = parsed_url.port_or_known_default().unwrap_or(80);
-        let mut auth = ProxyAuth::None;
-
-        match (parsed_url.username(), parsed_url.password()) {
-            (username, Some(password)) if !username.is_empty() => {
-                auth = ProxyAuth::Basic(BasicAuth::new(username, password));
-            }
-            _ => (),
-        }
-
-        Ok(Self {
-            protocol,
-            host,
-            port,
-            auth,
-        })
+    pub fn parse(input: &str) -> Result<Self, ProxyError> {
+        Url::parse(input)?.try_into()
     }
-}
 
-impl Proxy {
     pub async fn connect(
         &self,
-        target_host: &str,
+        target_host: impl Into<String>,
         target_port: u16,
     ) -> Result<TcpStream, ProxyError> {
-        let proxy_addr = format!("{}:{}", self.host, self.port.to_string());
+        let proxy_addr = format!("{}:{}", self.host, self.port);
 
         let stream = match self.protocol {
             ProxyProtocol::Http => {
@@ -84,12 +57,12 @@ impl Proxy {
 
                 match &self.auth {
                     ProxyAuth::None => {
-                        http_connect_tokio(&mut stream, target_host, target_port).await?;
+                        http_connect_tokio(&mut stream, &target_host.into(), target_port).await?;
                     }
                     ProxyAuth::Basic(BasicAuth { username, password }) => {
                         http_connect_tokio_with_basic_auth(
                             &mut stream,
-                            target_host,
+                            &target_host.into(),
                             target_port,
                             username,
                             password,
@@ -103,7 +76,7 @@ impl Proxy {
             ProxyProtocol::Socks5 => match &self.auth {
                 ProxyAuth::None => Socks5Stream::connect(
                     proxy_addr,
-                    target_host.to_string(),
+                    target_host.into(),
                     target_port,
                     Socks5Config::default(),
                 )
@@ -112,7 +85,7 @@ impl Proxy {
                 ProxyAuth::Basic(BasicAuth { username, password }) => {
                     Socks5Stream::connect_with_password(
                         proxy_addr,
-                        target_host.to_string(),
+                        target_host.into(),
                         target_port,
                         username.to_string(),
                         password.to_string(),
@@ -129,13 +102,45 @@ impl Proxy {
 
     pub async fn connect_with_timeout(
         &self,
-        target_host: &str,
+        target_host: impl Into<String>,
         target_port: u16,
         timeout: Duration,
     ) -> Result<TcpStream, ProxyError> {
         tokio::time::timeout(timeout, self.connect(target_host, target_port))
             .await
             .unwrap_or_else(|_| Err(ProxyError::ConnectionTimeout))
+    }
+}
+
+impl TryFrom<Url> for Proxy {
+    type Error = ProxyError;
+
+    fn try_from(url: Url) -> Result<Self, Self::Error> {
+        let protocol = match url.scheme() {
+            "http" | "https" => ProxyProtocol::Http,
+            "socks5" => ProxyProtocol::Socks5,
+            protocol => return Err(ProxyError::InvalidProtocol(protocol.to_string())),
+        };
+        let host = match url.host_str() {
+            Some(host) => host.to_string(),
+            None => return Err(ProxyError::InvalidHost),
+        };
+        let port = url.port_or_known_default().unwrap_or(80);
+        let mut auth = ProxyAuth::None;
+
+        match (url.username(), url.password()) {
+            (username, Some(password)) if !username.is_empty() => {
+                auth = ProxyAuth::Basic(BasicAuth::new(username, password));
+            }
+            _ => (),
+        }
+
+        Ok(Self {
+            protocol,
+            host,
+            port,
+            auth,
+        })
     }
 }
 
