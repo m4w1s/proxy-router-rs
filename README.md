@@ -13,7 +13,7 @@
 ## Install
 
 ```toml
-proxy-router = { git = "https://github.com/m4w1s/proxy-router-rs", tag = "v0.1.0" }
+proxy-router = { git = "https://github.com/m4w1s/proxy-router-rs", tag = "v0.2.0" }
 ```
 
 ## Usage
